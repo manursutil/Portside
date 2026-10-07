@@ -91,6 +91,15 @@ int prepare_broadcast_message(char *out, size_t out_size, const Client *client,
   return len;
 }
 
+void broadcast(const Clients *clients, int sender_fd, const char *message) {
+  size_t len = strlen(message);
+  for (size_t i = 0; i < clients->size; i++) {
+    const Client *c = &clients->items[i];
+    if (c->fd != sender_fd && c->state == CLIENT_CONNECTED)
+      send(c->fd, message, len, 0);
+  }
+}
+
 int main(void) {
   Clients clients = {.size = 0};
 
@@ -232,6 +241,11 @@ int main(void) {
             const char *msg = "Username accepted!\n";
             send(fd, msg, strlen(msg), 0);
 
+            char joined[MAX_NAME + 32];
+            snprintf(joined, sizeof(joined), "*** %s joined the chat ***\n",
+                     c->username);
+            broadcast(&clients, fd, joined);
+
             continue;
           }
 
@@ -241,6 +255,11 @@ int main(void) {
 
             if (strcmp(buffer, "quit") == 0) {
               printf("Client %s disconnected.\n", c->username);
+
+              char left[MAX_NAME + 32];
+              snprintf(left, sizeof(left), "*** %s left the chat ***\n",
+                       c->username);
+              broadcast(&clients, fd, left);
 
               close(c->fd); // close the fd and clear from master
               FD_CLR(c->fd, &master_set);
@@ -262,40 +281,24 @@ int main(void) {
               continue;
             }
 
-            for (int i = 0; i <= max_fd; i++) {
-              if (i == server_fd || i == fd)
-                continue;
-
-              if (!FD_ISSET(i, &master_set))
-                continue;
-
-              Client *other = clients_search_fd(&clients, i);
-
-              if (other == NULL)
-                continue;
-
-              // only send messages to clients that have chosen a username
-              if (other->state != CLIENT_CONNECTED)
-                continue;
-
-              send(i, out, len, 0);
-            }
+            broadcast(&clients, fd, out);
           }
 
-        } else if (bytes == 0) {
+        } else {
+          if (bytes < 0)
+            perror("recv");
+
           Client *c = clients_search_fd(&clients, fd);
 
-          if (c != NULL && c->state == CLIENT_CONNECTED)
+          if (c != NULL && c->state == CLIENT_CONNECTED) {
             printf("Client %s disconnected.\n", c->username);
-          else
+            char left[MAX_NAME + 32];
+            snprintf(left, sizeof(left), "*** %s left the chat ***\n",
+                     c->username);
+            broadcast(&clients, fd, left);
+          } else {
             printf("Client %d disconnected.\n", fd);
-
-          close(fd);
-          FD_CLR(fd, &master_set);
-          clients_delete(&clients, fd);
-
-        } else {
-          perror("recv");
+          }
 
           close(fd);
           FD_CLR(fd, &master_set);
