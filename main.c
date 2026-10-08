@@ -66,8 +66,10 @@ void disconnect_client(Clients *clients, int fd, fd_set *master_set) {
 
   if (c != NULL && c->state == CLIENT_CONNECTED) {
     printf("Client %s disconnected.\n", c->username);
+
     char left[MAX_NAME + 32];
     snprintf(left, sizeof(left), "*** %s left the chat ***\n", c->username);
+
     broadcast(clients, fd, left);
   } else {
     printf("Client %d disconnected.\n", fd);
@@ -98,6 +100,7 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
   if (clients_add(clients, c) == -1) {
     const char *msg = "Server is full, try again another time!\n";
     send(client_fd, msg, strlen(msg), 0);
+
     close(client_fd);
     return;
   }
@@ -126,6 +129,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
   }
 
   trim_newline(buffer, &bytes);
+
   Client *c = clients_search_fd(clients, fd);
   if (c == NULL) {
     fprintf(stderr, "Client with fd %d not found\n", fd);
@@ -138,14 +142,17 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
       const char *msg = "Username cannot be empty.\n"
                         "Enter username: ";
       send(fd, msg, strlen(msg), 0);
+
       return;
     }
 
     strncpy(c->username, buffer, MAX_NAME - 1);
+
     c->username[MAX_NAME - 1] = '\0';
     c->state = CLIENT_CONNECTED;
 
     printf("Client fd %d chose username: %s\n", c->fd, c->username);
+
     const char *msg = "Username accepted!\n";
     send(fd, msg, strlen(msg), 0);
 
@@ -153,17 +160,20 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     snprintf(joined, sizeof(joined), "*** %s joined the chat ***\n",
              c->username);
     broadcast(clients, fd, joined);
+
     return;
   }
 
   if (c->state == CLIENT_CONNECTED) {
     printf("Client %s sent: %s\n", c->username, buffer);
+
     if (strcmp(buffer, "quit") == 0) {
       disconnect_client(clients, fd, master_set);
       return;
     }
 
     char out[MAX_NAME + MAX_BUFFER_SIZE + 4];
+
     int len = prepare_broadcast_message(out, sizeof(out), c, buffer);
     if (len < 0) {
       fprintf(stderr, "Failed to prepare broadcast message\n");
@@ -180,9 +190,11 @@ int main(void) {
   int server_fd = create_server_socket();
   if (server_fd == -1)
     return 1;
+
   if (server_fd >= FD_SETSIZE) {
     fprintf(stderr, "Server descriptor exceeds select() capacity\n");
     close(server_fd);
+
     return 1;
   }
 
@@ -190,12 +202,15 @@ int main(void) {
 
   fd_set master_set;
   fd_set read_set;
+
   FD_ZERO(&master_set);
   FD_SET(server_fd, &master_set);
+
   int max_fd = server_fd;
 
   while (1) {
     read_set = master_set;
+
     int ready = select(max_fd + 1, &read_set, NULL, NULL, NULL);
     if (ready < 0) {
       perror("select");
