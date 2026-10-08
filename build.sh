@@ -3,7 +3,7 @@ set -eu
 
 CC="${CC:-gcc}"
 OUT="bin/main"
-SRC="*.c"
+SRC=( ./*.c )
 
 case "${1:-debug}" in
     debug)
@@ -23,7 +23,7 @@ case "${1:-debug}" in
 esac
 
 mkdir -p bin/
-$CC $FLAGS $SRC -o "$OUT"
+$CC $FLAGS "${SRC[@]}" -o "$OUT"
 
 echo "Built $OUT"
 
