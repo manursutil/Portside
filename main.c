@@ -11,7 +11,7 @@
 #define PORT 8080
 #define MAX_BUFFER_SIZE 1024
 #define MAX_NAME 32
-#define MAX_CLIENTS 16
+#define MAX_CLIENTS 64
 
 // telnet adds \r\n to each line sent
 // trim these newline characters for strcmp to work as expected
@@ -268,8 +268,8 @@ int main(void) {
               continue;
             }
 
-            const char *response = "Message received!\n";
-            send(fd, response, strlen(response), 0);
+            // const char *response = "Message received!\n";
+            // send(fd, response, strlen(response), 0);
 
             // echo messages to all clients
             char out[MAX_NAME + MAX_BUFFER_SIZE + 4];
