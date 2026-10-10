@@ -1,5 +1,7 @@
 #include "clients.h"
 
+#include <string.h>
+
 // client structure
 int clients_add(Clients *clients, Client client) {
   if (clients->size >= MAX_CLIENTS)
@@ -31,6 +33,16 @@ int clients_delete(Clients *clients, int fd) {
 Client *clients_search_fd(Clients *clients, int fd) {
   for (size_t i = 0; i < clients->size; i++) {
     if (clients->items[i].fd == fd) {
+      return &clients->items[i];
+    }
+  }
+
+  return NULL;
+}
+
+Client *clients_search_username(Clients *clients, char *username) {
+  for (size_t i = 0; i < clients->size; i++) {
+    if (strcmp(clients->items[i].username, username) == 0) {
       return &clients->items[i];
     }
   }

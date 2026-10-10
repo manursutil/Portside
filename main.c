@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "clients.h"
+#include "commands.h"
 #include "protocol.h"
 
 #define PORT 8080
@@ -170,8 +171,13 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
   if (c->state == CLIENT_CONNECTED) {
     printf("Client %s sent: %s\n", c->username, buffer);
 
-    if (strcmp(buffer, "quit") == 0) {
-      disconnect_client(clients, fd, master_set);
+    // detect commands (start with '/')
+    if (buffer[0] == '/') {
+      if (handle_command(buffer + 1, fd, clients)) {
+        disconnect_client(clients, fd, master_set);
+      } else {
+        send(fd, PROMPT, strlen(PROMPT), 0);
+      }
       return;
     }
 

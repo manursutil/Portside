@@ -25,5 +25,6 @@ typedef struct {
 int clients_add(Clients *clients, Client client);
 int clients_delete(Clients *clients, int fd);
 Client *clients_search_fd(Clients *clients, int fd);
+Client *clients_search_username(Clients *clients, char *username);
 
 #endif // !CLIENTS_H
