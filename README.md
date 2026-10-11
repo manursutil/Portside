@@ -1,6 +1,6 @@
 # Portside
 
-A small multi-user TCP chat server written in C. Built to learn POSIX sockets, `select()`, and client state management on Linux or macOS.
+A small multi-user TCP chat server and terminal client written in C. Built to learn POSIX sockets, `select()`, and client state management on Linux or macOS.
 
 > **Learning project.** Traffic is plaintext and there is no authentication. Don't expose it to untrusted networks.
 
@@ -10,7 +10,8 @@ A small multi-user TCP chat server written in C. Built to learn POSIX sockets, `
 - Username prompt on connect, with join and leave notices sent to everyone else
 - Slash commands for help, listing users, renaming, private messages, and quitting
 - Reliable sending: `send_all()` retries partial writes, and `SIGPIPE` is ignored so a client that drops mid-send can't crash the server
-- Works with any line-based TCP client, such as `nc` or `telnet`
+- A C client that uses `select()` to watch the keyboard and the server at the same time and draws its own `> ` prompt
+- The server also works with any line-based TCP client, such as `nc` or `telnet`
 - No dependencies beyond the C standard library and POSIX
 
 ## Requirements
@@ -18,7 +19,7 @@ A small multi-user TCP chat server written in C. Built to learn POSIX sockets, `
 - Linux or macOS
 - Bash
 - GCC or Clang
-- Netcat (`nc`) or Telnet to connect
+- Optional: Netcat (`nc`) or Telnet as an alternative client
 
 ## Getting started
 
@@ -31,15 +32,19 @@ Build and start the server:
 
 The server listens on port **8080** on all IPv4 interfaces.
 
-Open two or more terminals and connect from each:
+Open two or more terminals and run the client in each:
 
 ```sh
-nc localhost 8080
+./bin/client
 ```
 
-`telnet localhost 8080` also works, though Telnet option negotiation isn't implemented.
+The client connects to `127.0.0.1:8080`. Type a line and press Enter to send it; press Ctrl+D to quit.
+
+You can also connect with `nc localhost 8080` or `telnet localhost 8080`, though Telnet option negotiation isn't implemented.
 
 Enter a username when prompted, then type messages. Other users see `username: message`. Press Ctrl+C in the server terminal to stop it.
+
+`./build.sh` produces both `bin/server` and `bin/client`.
 
 ### Build options
 
@@ -68,10 +73,11 @@ These limits are compile-time constants:
 
 | Setting | Value | Defined in |
 |---|---|---|
-| Port | 8080 | `server/main.c` (`PORT`) |
+| Port | 8080 | `server/main.c` and `client/main.c` (`PORT`) |
+| Client server address | 127.0.0.1 | `client/main.c` (`SERVER_IP`) |
 | Max clients | 64 | `server/clients.h` (`MAX_CLIENTS`) |
 | Username length | 31 bytes (longer names are truncated) | `server/clients.h` (`MAX_NAME`) |
-| Read buffer | 1024 bytes | `server/main.c` (`MAX_MESSAGE`) |
+| Read buffer | 1024 bytes | `server/main.c` and `client/main.c` (`MAX_MESSAGE`) |
 
 When the server is full, new connections get a short message and are closed.
 
@@ -87,9 +93,10 @@ When the server is full, new connections get a short message and are closed.
 │   ├── commands.c/.h # Slash-command parsing and handlers
 │   └── protocol.c/.h # Broadcast message formatting
 ├── client/
-│   └── main.c        # Chat client (work in progress)
+│   └── main.c        # Terminal client: select() over stdin and the socket
 ├── tests/msg.c       # Tests for /msg over socketpairs
-└── build.sh          # Build script (debug, release, clean)
+├── build.sh          # Build script (debug, release, clean)
+└── .clangd           # Include paths for clangd
 ```
 
 ## How it works
@@ -98,6 +105,8 @@ When the server is full, new connections get a short message and are closed.
 2. When the listening socket is readable, the server accepts a new client, stores it in the client table in the `CLIENT_WAITING_USERNAME` state, and asks for a username.
 3. When a client socket is readable, the server reads one chunk. The first line becomes the username and moves the client to `CLIENT_CONNECTED`. After that, each line is either a command (`/...`) or a chat message broadcast to every other connected client.
 4. When `recv()` returns 0 or fails, the client is removed and a leave notice is broadcast.
+
+The client connects, then loops on `select()` over stdin and the socket. Each line typed is sent with `send_all()`; each chunk received is printed after a carriage return, and the `> ` prompt is redrawn once a full line has arrived. It exits when the server closes the connection or stdin hits EOF.
 
 ## Testing
 
@@ -119,7 +128,8 @@ Each run prints `PASS`, or exits early on a failed assertion.
 - [x] Username prompt and join/leave notices
 - [x] `/help`, `/users`, `/name`, `/msg`, `/quit`
 - [x] Partial sends, send errors, and `SIGPIPE`
-- [ ] **C client (coming soon).** A terminal client that uses `select()` to read keyboard input and server messages at the same time, so incoming messages don't interrupt what you're typing.
+- [x] C terminal client using `select()` over stdin and the socket
+- [ ] Client: keep a partially typed line intact when a message arrives, and accept host/port arguments
 - [ ] Per-client buffering of complete lines, including messages split across reads and several lines in one read
 - [ ] Reject duplicate or oversized usernames, oversized messages, and malformed commands
 - [ ] Better error handling and clean shutdown, then try `poll()`
@@ -130,6 +140,8 @@ Later ideas: rooms, timestamps, chat history, IPv6, and TLS through an establish
 
 - Each `recv()` is treated as one message, so input isn't split on line boundaries yet.
 - Usernames aren't checked for uniqueness, and `/name` doesn't notify other users.
+- The client has no line editing: an incoming message overwrites the prompt line, so text you've half-typed disappears from view (it's still sent when you press Enter).
+- The client always connects to `127.0.0.1:8080`.
 - IPv4 only. `select()` limits descriptors to `FD_SETSIZE`.
 
 This is a learning project, not production software. Traffic is plaintext, there's no authentication, and complete-line buffering is still pending.
