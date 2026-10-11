@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "net.h"
 
 #include <stdio.h>
 #include <sys/socket.h>
@@ -13,19 +13,6 @@ void trim_newline(char *buffer, ssize_t *bytes) {
   }
 
   buffer[*bytes] = '\0';
-}
-
-int prepare_broadcast_message(char *out, size_t out_size, const Client *client,
-                              const char *message) {
-  int len = snprintf(out, out_size, "%s: %s\n", client->username, message);
-
-  if (len < 0)
-    return -1;
-
-  if ((size_t)len >= out_size)
-    return -1; // message doesn't fit
-
-  return len;
 }
 
 int send_all(int fd, const char *buffer, size_t len) {

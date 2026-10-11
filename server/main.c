@@ -10,6 +10,7 @@
 
 #include "clients.h"
 #include "commands.h"
+#include "net.h"
 #include "protocol.h"
 
 #define PORT 8080

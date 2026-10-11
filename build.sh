@@ -2,9 +2,6 @@
 set -eu
 
 CC="${CC:-gcc}"
-OUT="bin/main"
-SRC=( ./*.c )
-
 case "${1:-debug}" in
     debug)
         FLAGS="-Wall -Wextra -g -O0"
@@ -23,7 +20,8 @@ case "${1:-debug}" in
 esac
 
 mkdir -p bin/
-$CC $FLAGS "${SRC[@]}" -o "$OUT"
+$CC $FLAGS -Icommon common/*.c server/*.c -o bin/server
+$CC $FLAGS -Icommon common/*.c client/*.c -o bin/client
 
-echo "Built $OUT"
+echo "Built bin/server bin/client"
 

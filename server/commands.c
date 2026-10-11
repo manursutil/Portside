@@ -1,6 +1,6 @@
 #include "commands.h"
 #include "clients.h"
-#include "protocol.h"
+#include "net.h"
 
 #include <ctype.h>
 #include <stddef.h>

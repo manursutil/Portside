@@ -26,7 +26,7 @@ Build and start the server:
 
 ```sh
 ./build.sh
-./bin/main
+./bin/server
 ```
 
 The server listens on port **8080** on all IPv4 interfaces.
@@ -68,10 +68,10 @@ These limits are compile-time constants:
 
 | Setting | Value | Defined in |
 |---|---|---|
-| Port | 8080 | `main.c` (`PORT`) |
-| Max clients | 64 | `clients.h` (`MAX_CLIENTS`) |
-| Username length | 31 bytes (longer names are truncated) | `clients.h` (`MAX_NAME`) |
-| Read buffer | 1024 bytes | `main.c` (`MAX_MESSAGE`) |
+| Port | 8080 | `server/main.c` (`PORT`) |
+| Max clients | 64 | `server/clients.h` (`MAX_CLIENTS`) |
+| Username length | 31 bytes (longer names are truncated) | `server/clients.h` (`MAX_NAME`) |
+| Read buffer | 1024 bytes | `server/main.c` (`MAX_MESSAGE`) |
 
 When the server is full, new connections get a short message and are closed.
 
@@ -79,12 +79,17 @@ When the server is full, new connections get a short message and are closed.
 
 ```
 .
-├── main.c        # Server socket, select() loop, accept/read/disconnect, broadcast
-├── clients.c/.h  # Fixed-size client table: add, delete, look up by fd or username
-├── commands.c/.h # Slash-command parsing and handlers
-├── protocol.c/.h # Line trimming, message formatting, send_all()
-├── tests/msg.c   # Tests for /msg over socketpairs
-└── build.sh      # Build script (debug, release, clean)
+├── common/
+│   └── net.c/.h      # Shared by server and client: trim_newline(), send_all()
+├── server/
+│   ├── main.c        # Server socket, select() loop, accept/read/disconnect, broadcast
+│   ├── clients.c/.h  # Fixed-size client table: add, delete, look up by fd or username
+│   ├── commands.c/.h # Slash-command parsing and handlers
+│   └── protocol.c/.h # Broadcast message formatting
+├── client/
+│   └── main.c        # Chat client (work in progress)
+├── tests/msg.c       # Tests for /msg over socketpairs
+└── build.sh          # Build script (debug, release, clean)
 ```
 
 ## How it works
@@ -100,7 +105,7 @@ When the server is full, new connections get a short message and are closed.
 
 ```sh
 ./build.sh
-cc -Wall -Wextra -I. tests/msg.c commands.c clients.c protocol.c -o bin/test_msg
+cc -Wall -Wextra -Icommon -Iserver tests/msg.c common/net.c server/commands.c server/clients.c -o bin/test_msg
 ./bin/test_msg "msg bob hello"     # Delivered
 ./bin/test_msg "msg nobody hello"  # Unknown user
 ./bin/test_msg "msg bob"           # Usage error
