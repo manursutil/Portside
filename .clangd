@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - "-I../common"
+    - "-I../server"
+    - "-I../client"
