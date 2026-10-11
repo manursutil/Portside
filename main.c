@@ -14,7 +14,6 @@
 
 #define PORT 8080
 #define MAX_MESSAGE 1024
-#define PROMPT "> "
 
 void broadcast(const Clients *clients, int sender_fd, const char *message) {
   size_t len = strlen(message);
@@ -22,7 +21,6 @@ void broadcast(const Clients *clients, int sender_fd, const char *message) {
     const Client *c = &clients->items[i];
     if (c->fd != sender_fd && c->state == CLIENT_CONNECTED) {
       send_all(c->fd, message, len);
-      send_all(c->fd, PROMPT, strlen(PROMPT));
     }
   }
 }
@@ -158,7 +156,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
 
     printf("Client fd %d chose username: %s\n", c->fd, c->username);
 
-    const char *msg = "Username accepted!\n" PROMPT;
+    const char *msg = "Username accepted!\n";
     send_all(fd, msg, strlen(msg));
 
     char joined[MAX_NAME + 32];
@@ -176,8 +174,6 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     if (buffer[0] == '/') {
       if (handle_command(buffer + 1, fd, clients)) {
         disconnect_client(clients, fd, master_set);
-      } else {
-        send_all(fd, PROMPT, strlen(PROMPT));
       }
       return;
     }
@@ -191,7 +187,6 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     }
 
     broadcast(clients, fd, out);
-    send_all(fd, PROMPT, strlen(PROMPT));
   }
 }
 
