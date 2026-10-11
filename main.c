@@ -1,4 +1,5 @@
 #include <netinet/in.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,7 +13,7 @@
 #include "protocol.h"
 
 #define PORT 8080
-#define MAX_BUFFER_SIZE 1024
+#define MAX_MESSAGE 1024
 #define PROMPT "> "
 
 void broadcast(const Clients *clients, int sender_fd, const char *message) {
@@ -20,8 +21,8 @@ void broadcast(const Clients *clients, int sender_fd, const char *message) {
   for (size_t i = 0; i < clients->size; i++) {
     const Client *c = &clients->items[i];
     if (c->fd != sender_fd && c->state == CLIENT_CONNECTED) {
-      send(c->fd, message, len, 0);
-      send(c->fd, PROMPT, strlen(PROMPT), 0);
+      send_all(c->fd, message, len);
+      send_all(c->fd, PROMPT, strlen(PROMPT));
     }
   }
 }
@@ -103,7 +104,7 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
 
   if (clients_add(clients, c) == -1) {
     const char *msg = "Server is full, try again another time!\n";
-    send(client_fd, msg, strlen(msg), 0);
+    send_all(client_fd, msg, strlen(msg));
 
     close(client_fd);
     return;
@@ -114,14 +115,14 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
     *max_fd = client_fd;
 
   const char *welcome = "Welcome to the server!\n";
-  send(client_fd, welcome, strlen(welcome), 0);
+  send_all(client_fd, welcome, strlen(welcome));
 
   const char *ask_username = "Enter username: ";
-  send(client_fd, ask_username, strlen(ask_username), 0);
+  send_all(client_fd, ask_username, strlen(ask_username));
 }
 
 void handle_client(Clients *clients, int fd, fd_set *master_set) {
-  char buffer[MAX_BUFFER_SIZE];
+  char buffer[MAX_MESSAGE];
   ssize_t bytes = recv(fd, buffer, sizeof(buffer) - 1, 0);
 
   if (bytes <= 0) {
@@ -145,7 +146,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     if (bytes == 0) {
       const char *msg = "Username cannot be empty.\n"
                         "Enter username: ";
-      send(fd, msg, strlen(msg), 0);
+      send_all(fd, msg, strlen(msg));
 
       return;
     }
@@ -158,7 +159,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     printf("Client fd %d chose username: %s\n", c->fd, c->username);
 
     const char *msg = "Username accepted!\n" PROMPT;
-    send(fd, msg, strlen(msg), 0);
+    send_all(fd, msg, strlen(msg));
 
     char joined[MAX_NAME + 32];
     snprintf(joined, sizeof(joined), "*** %s joined the chat ***\n",
@@ -176,12 +177,12 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
       if (handle_command(buffer + 1, fd, clients)) {
         disconnect_client(clients, fd, master_set);
       } else {
-        send(fd, PROMPT, strlen(PROMPT), 0);
+        send_all(fd, PROMPT, strlen(PROMPT));
       }
       return;
     }
 
-    char out[MAX_NAME + MAX_BUFFER_SIZE + 4];
+    char out[MAX_NAME + MAX_MESSAGE + 4];
 
     int len = prepare_broadcast_message(out, sizeof(out), c, buffer);
     if (len < 0) {
@@ -190,11 +191,13 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     }
 
     broadcast(clients, fd, out);
-    send(fd, PROMPT, strlen(PROMPT), 0);
+    send_all(fd, PROMPT, strlen(PROMPT));
   }
 }
 
 int main(void) {
+  signal(SIGPIPE, SIG_IGN);
+
   Clients clients = {.size = 0};
 
   int server_fd = create_server_socket();
