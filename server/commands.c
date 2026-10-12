@@ -1,6 +1,5 @@
 #include "commands.h"
 #include "clients.h"
-#include "net.h"
 
 #include <ctype.h>
 #include <stddef.h>
@@ -40,21 +39,24 @@ static Command command_parser(const char *cmd) {
   return CMD_UNKNOWN;
 }
 
-static void handle_help(int fd) {
+static void handle_help(Client *c) {
   char *help_msg = "\nAvailable commands:\n- /help: prints help message\n- "
                    "/quit: leave the server\n- /name <username>: change your "
                    "username\n- /msg <user> <message>: message a user "
                    "privately\n- /users: lists all the users in the server\n\n";
-  send_all(fd, help_msg, strlen(help_msg));
+
+  client_send(c, help_msg, strlen(help_msg));
 }
 
-static void list_users(int fd, Clients clients) {
-  for (size_t i = 0; i < clients.size; i++) {
-    Client *c = &clients.items[i];
+static void list_users(Clients *clients, int fd) {
+  Client *client = clients_search_fd(clients, fd);
+
+  for (size_t i = 0; i < clients->size; i++) {
+    Client *c = &clients->items[i];
 
     char msg_buf[64];
     snprintf(msg_buf, sizeof(msg_buf), "%d: %s\n", (int)i, c->username);
-    send_all(fd, msg_buf, strlen(msg_buf));
+    client_send(client, msg_buf, strlen(msg_buf));
   }
 }
 
@@ -71,16 +73,16 @@ static int handle_name_change(char *new_username, int fd, Clients *clients) {
   return 0;
 }
 
-static void handle_private_msg(int fd, char *username, Clients clients,
+static void handle_private_msg(int fd, char *username, Clients *clients,
                                const char *message) {
   // get sender
-  Client *sender = clients_search_fd(&clients, fd);
+  Client *sender = clients_search_fd(clients, fd);
 
   // get receiver
-  Client *receiver = clients_search_username(&clients, username);
+  Client *receiver = clients_search_username(clients, username);
   if (receiver == NULL) {
     char *msg = "Could not find that user in the server.\n";
-    send_all(fd, msg, strlen(msg));
+    client_send(sender, msg, strlen(msg));
     return;
   }
 
@@ -88,21 +90,22 @@ static void handle_private_msg(int fd, char *username, Clients clients,
   char recv_buf[1024];
   snprintf(recv_buf, sizeof(recv_buf), "***%s sent you a private message!\n",
            sender->username);
-  send_all(receiver->fd, recv_buf, strlen(recv_buf));
+  client_send(receiver, recv_buf, strlen(recv_buf));
 
   char message_buf[1024];
   snprintf(message_buf, sizeof(message_buf), "%s\n", message);
-  send_all(receiver->fd, message_buf, strlen(message_buf));
+  client_send(receiver, message_buf, strlen(message_buf));
 
   // Confirmation message to sender
   char msg_buf[1024];
   snprintf(msg_buf, sizeof(msg_buf), "Private message sent to: %s\n",
            receiver->username);
-  send_all(sender->fd, msg_buf, strlen(msg_buf));
+  client_send(sender, msg_buf, strlen(msg_buf));
   return;
 }
 
 bool handle_command(char *cmd, int fd, Clients *clients) {
+  Client *c = clients_search_fd(clients, fd);
   sanitize_command(cmd);
 
   char *args = strchr(cmd, ' ');
@@ -114,14 +117,14 @@ bool handle_command(char *cmd, int fd, Clients *clients) {
 
   switch (command_parser(cmd)) {
   case CMD_HELP:
-    handle_help(fd);
+    handle_help(c);
     break;
   case CMD_QUIT:
     return true;
   case CMD_NAME:
     if (args == NULL || *args == '\0') {
       char *msg = "Usage: /name <username>\n";
-      send_all(fd, msg, strlen(msg));
+      client_send(c, msg, strlen(msg));
       break;
     }
     handle_name_change(args, fd, clients);
@@ -140,20 +143,21 @@ bool handle_command(char *cmd, int fd, Clients *clients) {
     if (username == NULL || *username == '\0' || message == NULL ||
         *message == '\0') {
       char *usage = "Usage /msg <username> <message>\n";
-      send_all(fd, usage, strlen(usage));
+      client_send(c, usage, strlen(usage));
       break;
     }
 
-    handle_private_msg(fd, username, *clients, message);
+    handle_private_msg(fd, username, clients, message);
     break;
   }
   case CMD_USERS:
-    list_users(fd, *clients);
+    list_users(clients, fd);
     break;
   default: {
     const char *error_msg =
         "Unknown command. (use '/help', '/users', '/name', '/quit, '/msg')\n";
-    send_all(fd, error_msg, strlen(error_msg));
+
+    client_send(c, error_msg, strlen(error_msg));
     break;
   }
   }

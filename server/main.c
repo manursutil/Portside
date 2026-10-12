@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stddef.h>
@@ -16,12 +17,12 @@
 #define PORT 8080
 #define MAX_MESSAGE 1024
 
-void broadcast(const Clients *clients, int sender_fd, const char *message) {
+void broadcast(Clients *clients, int sender_fd, const char *message) {
   size_t len = strlen(message);
   for (size_t i = 0; i < clients->size; i++) {
-    const Client *c = &clients->items[i];
+    Client *c = &clients->items[i];
     if (c->fd != sender_fd && c->state == CLIENT_CONNECTED) {
-      send_all(c->fd, message, len);
+      client_send(c, message, len);
     }
   }
 }
@@ -99,14 +100,28 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
   }
 
   printf("New client connected: fd %d\n", client_fd);
-  Client c = {
-      .fd = client_fd, .state = CLIENT_WAITING_USERNAME, .buffer_len = 0};
+  Client c = {.fd = client_fd,
+              .state = CLIENT_WAITING_USERNAME,
+              .disconnect_candidate = 0,
+              .incoming_buffer_len = 0,
+              .outgoing_buffer_len = 0};
 
   if (clients_add(clients, c) == -1) {
     const char *msg = "Server is full, try again another time!\n";
-    send_all(client_fd, msg, strlen(msg));
+    send_all(c.fd, msg, strlen(msg));
 
     close(client_fd);
+    return;
+  }
+
+  int flags = fcntl(client_fd, F_GETFL, 0);
+  if (flags == -1) {
+    perror("fcntl F_GETFL");
+    return;
+  }
+
+  if (fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+    perror("fcntl F_SETFL");
     return;
   }
 
@@ -114,11 +129,12 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
   if (client_fd > *max_fd)
     *max_fd = client_fd;
 
+  Client *cl = clients_search_fd(clients, c.fd);
   const char *welcome = "Welcome to the server!\n";
-  send_all(client_fd, welcome, strlen(welcome));
+  client_send(cl, welcome, strlen(welcome));
 
   const char *ask_username = "Enter username: ";
-  send_all(client_fd, ask_username, strlen(ask_username));
+  client_send(cl, ask_username, strlen(ask_username));
 }
 
 void process_message(Clients *clients, int fd, fd_set *master_set,
@@ -131,7 +147,7 @@ void process_message(Clients *clients, int fd, fd_set *master_set,
     if (message[0] == '\0') {
       const char *msg = "Username cannot be empty.\n"
                         "Enter username: ";
-      send_all(fd, msg, strlen(msg));
+      client_send(c, msg, strlen(msg));
 
       return;
     }
@@ -144,7 +160,7 @@ void process_message(Clients *clients, int fd, fd_set *master_set,
     printf("Client fd %d chose username: %s\n", c->fd, c->username);
 
     const char *msg = "Username accepted!\n";
-    send_all(fd, msg, strlen(msg));
+    client_send(c, msg, strlen(msg));
 
     char joined[MAX_NAME + 32];
     snprintf(joined, sizeof(joined), "*** %s joined the chat ***\n",
@@ -185,7 +201,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     return;
   }
 
-  char temp[MAX_BUFFER];
+  char temp[MAX_INCOMING_BUFFER];
 
   ssize_t bytes = recv(fd, temp, sizeof(temp), 0);
   if (bytes <= 0) {
@@ -200,14 +216,15 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
     char ch = temp[i];
 
     if (ch == '\n') {
-      if (c->buffer_len > 0 && c->buffer[c->buffer_len - 1] == '\r') {
-        c->buffer_len--;
+      if (c->incoming_buffer_len > 0 &&
+          c->incoming_buffer[c->incoming_buffer_len - 1] == '\r') {
+        c->incoming_buffer_len--;
       }
 
-      c->buffer[c->buffer_len] = '\0';
+      c->incoming_buffer[c->incoming_buffer_len] = '\0';
 
-      char message[MAX_BUFFER];
-      memcpy(message, c->buffer, c->buffer_len + 1);
+      char message[MAX_INCOMING_BUFFER];
+      memcpy(message, c->incoming_buffer, c->incoming_buffer_len + 1);
 
       process_message(clients, fd, master_set, message);
 
@@ -217,18 +234,33 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
 
       // clear buffer after message has been processed
       // memset(c->buffer, 0, sizeof(c->buffer));
-      c->buffer_len = 0;
+      c->incoming_buffer_len = 0;
 
     } else {
-      if (c->buffer_len >= sizeof(c->buffer) - 1) {
+      if (c->incoming_buffer_len >= sizeof(c->incoming_buffer) - 1) {
         char *msg = "Message too long\n";
-        send_all(fd, msg, strlen(msg));
+        client_send(c, msg, strlen(msg));
+        c->disconnect_candidate = 1;
 
-        disconnect_client(clients, fd, master_set);
+        // disconnect_client(clients, fd, master_set);
         return;
       }
 
-      c->buffer[c->buffer_len++] = ch;
+      c->incoming_buffer[c->incoming_buffer_len++] = ch;
+    }
+  }
+}
+
+void cleanup(Clients *clients, fd_set *master_set) {
+  // disconnect marked clients
+  // clients_delete shifts elements, don't increase i automatically
+  for (size_t i = 0; i < clients->size;) {
+    if (clients->items[i].disconnect_candidate) {
+      int fd = clients->items[i].fd;
+      client_flush(&clients->items[i]);
+      disconnect_client(clients, fd, master_set);
+    } else {
+      i++;
     }
   }
 }
@@ -253,6 +285,7 @@ int main(void) {
 
   fd_set master_set;
   fd_set read_set;
+  fd_set write_set;
 
   FD_ZERO(&master_set);
   FD_SET(server_fd, &master_set);
@@ -261,22 +294,45 @@ int main(void) {
 
   while (1) {
     read_set = master_set;
+    FD_ZERO(&write_set);
 
-    int ready = select(max_fd + 1, &read_set, NULL, NULL, NULL);
+    // Add clients with pending data to write set
+    for (int fd = 0; fd <= max_fd; fd++) {
+      if (fd == server_fd)
+        continue;
+
+      if (!FD_ISSET(fd, &master_set))
+        continue;
+
+      if (client_has_pending_data(&clients, fd)) {
+        FD_SET(fd, &write_set);
+      }
+    }
+
+    int ready = select(max_fd + 1, &read_set, &write_set, NULL, NULL);
     if (ready < 0) {
       perror("select");
       break;
     }
 
     for (int fd = 0; fd <= max_fd; fd++) {
-      if (!FD_ISSET(fd, &read_set))
-        continue;
 
-      if (fd == server_fd)
-        accept_client(server_fd, &clients, &master_set, &max_fd);
-      else
-        handle_client(&clients, fd, &master_set);
+      if (FD_ISSET(fd, &read_set)) {
+        if (fd == server_fd)
+          accept_client(server_fd, &clients, &master_set, &max_fd);
+        else
+          handle_client(&clients, fd, &master_set);
+      }
+
+      Client *client = clients_search_fd(&clients, fd);
+      if (client != NULL && FD_ISSET(fd, &write_set)) {
+        if (client_flush(client) == -1) {
+          disconnect_client(&clients, fd, &master_set);
+        }
+      }
     }
+
+    cleanup(&clients, &master_set);
   }
 
   return 0;
