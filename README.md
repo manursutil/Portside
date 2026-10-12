@@ -139,6 +139,7 @@ Later ideas: rooms, timestamps, chat history, IPv6, and TLS through an establish
 ## Known limitations
 
 - Usernames aren't checked for uniqueness, and `/name` doesn't notify other users.
+- Blocking sends mean one client that stops reading can stall the whole server.
 - The client has no line editing: an incoming message overwrites the prompt line, so text you've half-typed disappears from view (it's still sent when you press Enter).
 - The client always connects to `127.0.0.1:8080`.
 - IPv4 only. `select()` limits descriptors to `FD_SETSIZE`.

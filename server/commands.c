@@ -89,7 +89,10 @@ static void handle_private_msg(int fd, char *username, Clients clients,
   snprintf(recv_buf, sizeof(recv_buf), "***%s sent you a private message!\n",
            sender->username);
   send_all(receiver->fd, recv_buf, strlen(recv_buf));
-  send_all(receiver->fd, message, strlen(message));
+
+  char message_buf[1024];
+  snprintf(message_buf, sizeof(message_buf), "%s\n", message);
+  send_all(receiver->fd, message_buf, strlen(message_buf));
 
   // Confirmation message to sender
   char msg_buf[1024];
