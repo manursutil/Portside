@@ -99,7 +99,8 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
   }
 
   printf("New client connected: fd %d\n", client_fd);
-  Client c = {.fd = client_fd, .state = CLIENT_WAITING_USERNAME};
+  Client c = {
+      .fd = client_fd, .state = CLIENT_WAITING_USERNAME, .buffer_len = 0};
 
   if (clients_add(clients, c) == -1) {
     const char *msg = "Server is full, try again another time!\n";
@@ -120,29 +121,14 @@ void accept_client(int server_fd, Clients *clients, fd_set *master_set,
   send_all(client_fd, ask_username, strlen(ask_username));
 }
 
-void handle_client(Clients *clients, int fd, fd_set *master_set) {
-  char buffer[MAX_MESSAGE];
-  ssize_t bytes = recv(fd, buffer, sizeof(buffer) - 1, 0);
-
-  if (bytes <= 0) {
-    if (bytes < 0)
-      perror("recv");
-
-    disconnect_client(clients, fd, master_set);
-    return;
-  }
-
-  trim_newline(buffer, &bytes);
-
+void process_message(Clients *clients, int fd, fd_set *master_set,
+                     char *message) {
   Client *c = clients_search_fd(clients, fd);
-  if (c == NULL) {
-    fprintf(stderr, "Client with fd %d not found\n", fd);
-    disconnect_client(clients, fd, master_set);
+  if (c == NULL)
     return;
-  }
 
   if (c->state == CLIENT_WAITING_USERNAME) {
-    if (bytes == 0) {
+    if (message[0] == '\0') {
       const char *msg = "Username cannot be empty.\n"
                         "Enter username: ";
       send_all(fd, msg, strlen(msg));
@@ -150,7 +136,7 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
       return;
     }
 
-    strncpy(c->username, buffer, MAX_NAME - 1);
+    strncpy(c->username, message, MAX_NAME - 1);
 
     c->username[MAX_NAME - 1] = '\0';
     c->state = CLIENT_CONNECTED;
@@ -169,11 +155,11 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
   }
 
   if (c->state == CLIENT_CONNECTED) {
-    printf("Client %s sent: %s\n", c->username, buffer);
+    printf("Client %s sent: %s\n", c->username, message);
 
     // detect commands (start with '/')
-    if (buffer[0] == '/') {
-      if (handle_command(buffer + 1, fd, clients)) {
+    if (message[0] == '/') {
+      if (handle_command(message + 1, fd, clients)) {
         disconnect_client(clients, fd, master_set);
       }
       return;
@@ -181,13 +167,69 @@ void handle_client(Clients *clients, int fd, fd_set *master_set) {
 
     char out[MAX_NAME + MAX_MESSAGE + 4];
 
-    int len = prepare_broadcast_message(out, sizeof(out), c, buffer);
+    int len = prepare_broadcast_message(out, sizeof(out), c, message);
     if (len < 0) {
       fprintf(stderr, "Failed to prepare broadcast message\n");
       return;
     }
 
     broadcast(clients, fd, out);
+  }
+}
+
+void handle_client(Clients *clients, int fd, fd_set *master_set) {
+  Client *c = clients_search_fd(clients, fd);
+  if (c == NULL) {
+    fprintf(stderr, "Client with fd %d not found\n", fd);
+    disconnect_client(clients, fd, master_set);
+    return;
+  }
+
+  char temp[MAX_BUFFER];
+
+  ssize_t bytes = recv(fd, temp, sizeof(temp), 0);
+  if (bytes <= 0) {
+    if (bytes < 0)
+      perror("recv");
+
+    disconnect_client(clients, fd, master_set);
+    return;
+  }
+
+  for (ssize_t i = 0; i < bytes; i++) {
+    char ch = temp[i];
+
+    if (ch == '\n') {
+      if (c->buffer_len > 0 && c->buffer[c->buffer_len - 1] == '\r') {
+        c->buffer_len--;
+      }
+
+      c->buffer[c->buffer_len] = '\0';
+
+      char message[MAX_BUFFER];
+      memcpy(message, c->buffer, c->buffer_len + 1);
+
+      process_message(clients, fd, master_set, message);
+
+      c = clients_search_fd(clients, fd);
+      if (c == NULL)
+        return;
+
+      // clear buffer after message has been processed
+      // memset(c->buffer, 0, sizeof(c->buffer));
+      c->buffer_len = 0;
+
+    } else {
+      if (c->buffer_len >= sizeof(c->buffer) - 1) {
+        char *msg = "Message too long\n";
+        send_all(fd, msg, strlen(msg));
+
+        disconnect_client(clients, fd, master_set);
+        return;
+      }
+
+      c->buffer[c->buffer_len++] = ch;
+    }
   }
 }
 

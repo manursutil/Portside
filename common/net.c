@@ -4,17 +4,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-// telnet adds \r\n to each line sent
-// trim these newline characters for strcmp to work as expected
-void trim_newline(char *buffer, ssize_t *bytes) {
-  while (*bytes > 0 &&
-         (buffer[*bytes - 1] == '\n' || buffer[*bytes - 1] == '\r')) {
-    (*bytes)--;
-  }
-
-  buffer[*bytes] = '\0';
-}
-
 int send_all(int fd, const char *buffer, size_t len) {
   size_t total = 0;
   size_t bytes_left = len;

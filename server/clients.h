@@ -5,6 +5,7 @@
 
 #define MAX_NAME 32
 #define MAX_CLIENTS 64
+#define MAX_BUFFER 1024
 
 typedef enum {
   CLIENT_WAITING_USERNAME,
@@ -15,6 +16,9 @@ typedef struct {
   int fd;
   char username[MAX_NAME];
   ClientState state;
+
+  char buffer[MAX_BUFFER];
+  size_t buffer_len;
 } Client;
 
 typedef struct {

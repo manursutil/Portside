@@ -86,7 +86,7 @@ When the server is full, new connections get a short message and are closed.
 ```
 .
 ├── common/
-│   └── net.c/.h      # Shared by server and client: trim_newline(), send_all()
+│   └── net.c/.h      # Shared by server and client: send_all()
 ├── server/
 │   ├── main.c        # Server socket, select() loop, accept/read/disconnect, broadcast
 │   ├── clients.c/.h  # Fixed-size client table: add, delete, look up by fd or username
@@ -130,7 +130,7 @@ Each run prints `PASS`, or exits early on a failed assertion.
 - [x] Partial sends, send errors, and `SIGPIPE`
 - [x] C terminal client using `select()` over stdin and the socket
 - [ ] Client: keep a partially typed line intact when a message arrives, and accept host/port arguments
-- [ ] Per-client buffering of complete lines, including messages split across reads and several lines in one read
+- [X] Per-client buffering of complete lines, including messages split across reads and several lines in one read
 - [ ] Reject duplicate or oversized usernames, oversized messages, and malformed commands
 - [ ] Better error handling and clean shutdown, then try `poll()`
 
@@ -138,7 +138,6 @@ Later ideas: rooms, timestamps, chat history, IPv6, and TLS through an establish
 
 ## Known limitations
 
-- Each `recv()` is treated as one message, so input isn't split on line boundaries yet.
 - Usernames aren't checked for uniqueness, and `/name` doesn't notify other users.
 - The client has no line editing: an incoming message overwrites the prompt line, so text you've half-typed disappears from view (it's still sent when you press Enter).
 - The client always connects to `127.0.0.1:8080`.
